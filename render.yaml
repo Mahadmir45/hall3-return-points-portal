@@ -4,6 +4,10 @@ services:
     runtime: docker
     plan: free
     healthCheckPath: /signin
+    disk:
+      name: uploads
+      mountPath: /app/uploads
+      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production

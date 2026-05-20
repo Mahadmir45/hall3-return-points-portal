@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+uploads
+.env
+.env.*
+*.md
+playwright-report
+test-results
+coverage
+Data_mocked_for ref
