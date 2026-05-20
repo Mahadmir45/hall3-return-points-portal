@@ -11,6 +11,32 @@ Web portal for Hall 3 tutors to manage resident return points across Events, ICF
 - BullMQ + Redis for background parsing
 - S3-compatible storage (MinIO locally, R2 in prod)
 
+## Deploy to the internet
+
+### Option A — One-click Render (recommended, permanent)
+
+1. Open **[Deploy to Render](https://render.com/deploy?repo=https://github.com/Mahadmir45/hall3-return-points-portal)** and sign in with GitHub.
+2. Click **Apply** — Render creates the web service + Postgres from `render.yaml`.
+3. After the first deploy finishes, open the service **Environment** tab and set:
+   - `AUTH_URL` → your Render URL (e.g. `https://hall3-return-points.onrender.com`)
+4. Wait for the redeploy, then sign in with `tutor@hall3.dev` / `hall3dev`.
+
+The Docker image runs `prisma db push` + seed on startup, so Hall 3 users and categories are ready automatically.
+
+### Option B — Quick tunnel (temporary, for local dev)
+
+While `npm run dev` is running on your machine:
+
+```bash
+npx cloudflared tunnel --url http://localhost:3000
+```
+
+Use the `https://*.trycloudflare.com` URL it prints. Keep your laptop awake and the dev server running — this is not permanent hosting.
+
+### GitHub repo
+
+https://github.com/Mahadmir45/hall3-return-points-portal
+
 ## Quick start
 
 ```bash
