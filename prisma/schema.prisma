@@ -1,0 +1,443 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  MASTER
+  TUTOR
+}
+
+enum CategoryCode {
+  EVENTS
+  ICFD
+  FLOOR_REPS
+  HSO
+}
+
+enum ActivityType {
+  EVENT
+  SPORT
+  FLOOR_REP_TERM
+  HSO_TERM
+  OTHER
+}
+
+enum RoleCode {
+  OC
+  HELPER
+  PERFORMER
+  PARTICIPANT
+  TEAM_MANAGER
+  PLAYER
+  BACKUP
+  CHEERING
+  UNSELECTED
+  OFFICER
+  FLOOR_REP
+}
+
+enum SessionType {
+  TRAINING
+  COMPETITION
+  MEETING
+  OTHER
+}
+
+enum UploadKind {
+  RLA_REPORT
+  ICFD_REPORT
+  FLOOR_REP_SHEET
+  HSO_SHEET
+  ROSTER
+  IMAGE
+  OTHER
+}
+
+enum ParseStatus {
+  PENDING
+  PARSED
+  PARTIAL
+  FAILED
+}
+
+enum ActivityStatus {
+  DRAFT
+  ACTIVE
+  FINALIZED
+}
+
+enum ScoringScope {
+  ACTIVITY
+  CATEGORY
+  HALL
+}
+
+enum AssetKind {
+  IMAGE
+  DOC
+  OTHER
+}
+
+model Hall {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  slug      String   @unique
+  name      String
+  address   String?
+  createdAt DateTime @default(now())
+
+  users          User[]
+  academicYears  AcademicYear[]
+  students       Student[]
+  uploads        Upload[]
+  auditLogs      AuditLog[]
+  scoringRules   ScoringRule[]
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  role          Role      @default(TUTOR)
+  hallId        String?
+  passwordHash  String?
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+
+  hall              Hall?      @relation(fields: [hallId], references: [id])
+  accounts          Account[]
+  sessions          Session[]
+  activitiesCreated Activity[] @relation("ActivityCreatedBy")
+  activitiesRtPic   Activity[] @relation("ActivityRtPic")
+  uploads           Upload[]
+  assets            Asset[]
+  auditLogs         AuditLog[]
+  snapshots         SemesterSnapshot[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model AcademicYear {
+  id        String   @id @default(cuid())
+  hallId    String
+  label     String
+  startDate DateTime
+  endDate   DateTime
+
+  hall      Hall       @relation(fields: [hallId], references: [id], onDelete: Cascade)
+  semesters Semester[]
+
+  @@unique([hallId, label])
+}
+
+model Semester {
+  id             String @id @default(cuid())
+  academicYearId String
+  code           String
+  label          String
+
+  academicYear AcademicYear       @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  enrollments  Enrollment[]
+  categories   Category[]
+  uploads      Upload[]
+  snapshot     SemesterSnapshot?
+
+  @@unique([academicYearId, code])
+}
+
+model Student {
+  id          String  @id @default(cuid())
+  hallId      String
+  sid         String
+  nameFull    String
+  gender      String?
+  programYear Int?
+  program     String?
+  country     String?
+
+  hall         Hall                  @relation(fields: [hallId], references: [id], onDelete: Cascade)
+  enrollments  Enrollment[]
+  participants ActivityParticipant[]
+
+  @@unique([hallId, sid])
+  @@index([hallId, nameFull])
+}
+
+model Enrollment {
+  id         String    @id @default(cuid())
+  studentId  String
+  semesterId String
+  roomCode   String
+  bedNo      String?
+  checkIn    DateTime?
+  checkOut   DateTime?
+  status     String?
+
+  student  Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  semester Semester @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, semesterId])
+  @@index([semesterId])
+}
+
+model Category {
+  id         String       @id @default(cuid())
+  semesterId String
+  code       CategoryCode
+  name       String
+
+  semester   Semester   @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+  activities Activity[]
+
+  @@unique([semesterId, code])
+}
+
+model Activity {
+  id                String         @id @default(cuid())
+  categoryId        String
+  type              ActivityType
+  sortKey           String         @default("00")
+  name              String
+  description       String?
+  date              DateTime?
+  status            ActivityStatus @default(DRAFT)
+  performanceRating String?
+  rtPicUserId       String?
+  hsoPic            String?
+  externalCode      String?
+  createdById       String?
+  createdAt         DateTime       @default(now())
+
+  category     Category              @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  rtPic        User?                 @relation("ActivityRtPic", fields: [rtPicUserId], references: [id])
+  createdBy    User?                 @relation("ActivityCreatedBy", fields: [createdById], references: [id])
+  roles        ActivityRole[]
+  participants ActivityParticipant[]
+  sessions     ActivitySession[]
+  uploads      Upload[]
+  assets       Asset[]
+
+  @@index([categoryId])
+}
+
+model ActivityRole {
+  id               String   @id @default(cuid())
+  activityId       String
+  code             RoleCode
+  defaultBasePoints Float   @default(0)
+  sortOrder        Int      @default(0)
+
+  activity Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@unique([activityId, code])
+}
+
+model ActivityParticipant {
+  id             String   @id @default(cuid())
+  activityId     String
+  studentId      String?
+  rawName        String?
+  rawSid         String?
+  rawRoom        String?
+  roleCode       RoleCode
+  basePoints     Float    @default(0)
+  extraPoints    Float    @default(0)
+  rating         Float?
+  computedPoints Float    @default(0)
+  isResolved     Boolean  @default(false)
+  notes          String?
+
+  activity   Activity     @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  student    Student?     @relation(fields: [studentId], references: [id])
+  attendance Attendance[]
+  staging    ParticipantStaging[]
+
+  @@index([activityId])
+  @@index([studentId])
+}
+
+model ActivitySession {
+  id          String      @id @default(cuid())
+  activityId  String
+  label       String
+  type        SessionType @default(OTHER)
+  sessionDate DateTime?
+  sortOrder   Int         @default(0)
+
+  activity   Activity     @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  attendance Attendance[]
+
+  @@index([activityId])
+}
+
+model Attendance {
+  id            String  @id @default(cuid())
+  sessionId     String
+  participantId String
+  attended      Boolean @default(false)
+  notes         String?
+
+  session     ActivitySession     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  participant ActivityParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, participantId])
+}
+
+model ScoringRule {
+  id       String       @id @default(cuid())
+  hallId   String
+  scope    ScoringScope
+  refId    String?
+  ruleJson Json
+
+  hall Hall @relation(fields: [hallId], references: [id], onDelete: Cascade)
+
+  @@index([hallId, scope])
+}
+
+model Upload {
+  id               String      @id @default(cuid())
+  hallId           String
+  semesterId       String?
+  activityId       String?
+  kind             UploadKind
+  originalFilename String
+  storageKey       String
+  mimeType         String?
+  sizeBytes        Int?
+  uploadedById     String
+  uploadedAt       DateTime    @default(now())
+  parseStatus      ParseStatus @default(PENDING)
+  parseLogJson     Json?
+  parsedAt         DateTime?
+
+  hall     Hall      @relation(fields: [hallId], references: [id], onDelete: Cascade)
+  semester Semester? @relation(fields: [semesterId], references: [id])
+  activity Activity? @relation(fields: [activityId], references: [id])
+  uploadedBy User    @relation(fields: [uploadedById], references: [id])
+  staging  ParticipantStaging[]
+  sessionStaging SessionStaging[]
+
+  @@index([hallId])
+  @@index([activityId])
+}
+
+model ParticipantStaging {
+  id             String   @id @default(cuid())
+  uploadId       String
+  activityId     String?
+  participantId  String?
+  rawName        String?
+  rawSid         String?
+  rawRoom        String?
+  roleCode       RoleCode
+  basePoints     Float    @default(0)
+  extraPoints    Float    @default(0)
+  rating         Float?
+  computedPoints Float    @default(0)
+  notes          String?
+  rowIndex       Int?
+  sessionData    Json?
+  isApplied      Boolean  @default(false)
+
+  upload      Upload               @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  participant ActivityParticipant? @relation(fields: [participantId], references: [id])
+
+  @@index([uploadId])
+}
+
+model SessionStaging {
+  id        String      @id @default(cuid())
+  uploadId  String
+  label     String
+  type      SessionType @default(OTHER)
+  sessionDate DateTime?
+  sortOrder Int         @default(0)
+
+  upload Upload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  @@index([uploadId])
+}
+
+model Asset {
+  id               String    @id @default(cuid())
+  activityId       String
+  kind             AssetKind @default(OTHER)
+  storageKey       String
+  originalFilename String
+  mimeType         String?
+  uploadedById     String
+  uploadedAt       DateTime  @default(now())
+
+  activity   Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  uploadedBy User     @relation(fields: [uploadedById], references: [id])
+
+  @@index([activityId])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  hallId     String
+  userId     String
+  action     String
+  entityType String
+  entityId   String?
+  diffJson   Json?
+  createdAt  DateTime @default(now())
+
+  hall Hall @relation(fields: [hallId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([hallId, createdAt])
+}
+
+model SemesterSnapshot {
+  id           String   @id @default(cuid())
+  semesterId   String   @unique
+  payloadJson  Json
+  finalizedById String
+  finalizedAt  DateTime @default(now())
+
+  semester    Semester @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+  finalizedBy User     @relation(fields: [finalizedById], references: [id])
+}
