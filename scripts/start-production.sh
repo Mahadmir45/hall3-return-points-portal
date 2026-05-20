@@ -10,4 +10,4 @@ if [ "${RUN_SEED:-true}" = "true" ]; then
 fi
 
 echo "Starting server..."
-exec node server.js
+exec npm run start -- -p 3000 -H 0.0.0.0
