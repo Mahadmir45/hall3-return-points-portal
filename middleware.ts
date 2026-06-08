@@ -5,7 +5,13 @@ import type { NextRequest } from "next/server";
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  const publicPaths = ["/signin", "/api/auth", "/api/local-upload", "/api/local-download"];
+  const publicPaths = [
+    "/signin",
+    "/select-hall",
+    "/api/auth",
+    "/api/local-upload",
+    "/api/local-download",
+  ];
   const isPublic = publicPaths.some((p) => pathname.startsWith(p));
 
   if (isPublic) {
@@ -23,13 +29,23 @@ export async function middleware(request: NextRequest) {
   const hallMatch = pathname.match(/^\/h\/([^/]+)/);
   if (hallMatch) {
     const hallSlug = hallMatch[1];
-    const { role, hallSlug: userHallSlug } = session.user;
+    const { role, hallSlug: activeSlug, halls = [] } = session.user;
 
-    if (role !== "SUPER_ADMIN" && userHallSlug !== hallSlug) {
-      if (userHallSlug) {
-        return NextResponse.redirect(new URL(`/h/${userHallSlug}`, request.url));
+    if (role === "SUPER_ADMIN") {
+      return NextResponse.next();
+    }
+
+    const allowed =
+      activeSlug === hallSlug || halls.some((h) => h.slug === hallSlug);
+
+    if (!allowed) {
+      if (halls.length > 1) {
+        return NextResponse.redirect(new URL("/select-hall", request.url));
       }
-      return NextResponse.redirect(new URL("/signin", request.url));
+      if (activeSlug) {
+        return NextResponse.redirect(new URL(`/h/${activeSlug}`, request.url));
+      }
+      return NextResponse.redirect(new URL("/select-hall", request.url));
     }
   }
 
@@ -39,7 +55,7 @@ export async function middleware(request: NextRequest) {
         new URL(`/h/${session.user.hallSlug}`, request.url),
       );
     }
-    return NextResponse.redirect(new URL("/signin", request.url));
+    return NextResponse.redirect(new URL("/select-hall", request.url));
   }
 
   return NextResponse.next();

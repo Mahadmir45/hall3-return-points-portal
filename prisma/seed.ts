@@ -90,13 +90,59 @@ async function main() {
       hallId: hall.id,
       scope: "HALL",
       ruleJson: {
-        type: "icfd",
+        type: "default",
         formula: "participation + extra + trainingCount",
-        awards: { gold: 15, silver: 10, bronze: 5 },
+        participantDefault: 2,
       },
     },
     update: {},
   });
+
+  const categories = await prisma.category.findMany({
+    where: { semester: { academicYear: { hallId: hall.id } } },
+  });
+  for (const cat of categories) {
+    const ruleByCode: Record<string, object> = {
+      EVENTS: { type: "event", participantDefault: 2 },
+      ICFD: { type: "icfd", formula: "participation + extra + trainingCount" },
+      FLOOR_REPS: { type: "floor_rep" },
+      HSO: { type: "hso" },
+    };
+    await prisma.scoringRule.upsert({
+      where: { id: `cat-rule-${cat.id}` },
+      create: {
+        id: `cat-rule-${cat.id}`,
+        hallId: hall.id,
+        scope: "CATEGORY",
+        refId: cat.id,
+        ruleJson: ruleByCode[cat.code] ?? { type: "default" },
+      },
+      update: {},
+    });
+  }
+
+  // Demo: tutor also has access to a second hall (for multi-hall testing)
+  const hall6 = await prisma.hall.upsert({
+    where: { slug: "hall-6" },
+    create: {
+      code: "H6",
+      slug: "hall-6",
+      name: "Hall 6",
+      address: "Shaw College, CUHK",
+    },
+    update: {},
+  });
+
+  const tutor = await prisma.user.findUnique({
+    where: { email: "tutor@hall3.dev" },
+  });
+  if (tutor) {
+    await prisma.userHall.upsert({
+      where: { userId_hallId: { userId: tutor.id, hallId: hall6.id } },
+      create: { userId: tutor.id, hallId: hall6.id },
+      update: {},
+    });
+  }
 
   console.log("Seed complete:");
   console.log("  Hall:", hall.name);

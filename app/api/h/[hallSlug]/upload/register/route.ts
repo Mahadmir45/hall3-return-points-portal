@@ -13,6 +13,7 @@ const schema = z.object({
   mimeType: z.string().optional(),
   sizeBytes: z.number().optional(),
   kind: z.string().optional(),
+  sheetName: z.string().optional(),
   semesterId: z.string().optional(),
   activityId: z.string().optional(),
 });
@@ -37,6 +38,7 @@ export async function POST(
       activityId: body.activityId,
       kind,
       originalFilename: body.originalFilename,
+      sheetName: body.sheetName,
       storageKey: body.storageKey,
       mimeType: body.mimeType,
       sizeBytes: body.sizeBytes,

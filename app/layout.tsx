@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Hall 3 Return Points Portal",
-  description: "Resident return points management for Hall 3",
+  title: "Return Points Portal",
+  description: "Resident return points management for university halls",
 };
 
 export default function RootLayout({

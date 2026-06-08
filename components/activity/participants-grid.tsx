@@ -29,6 +29,7 @@ export function ParticipantsGrid({
 }) {
   const [rows, setRows] = useState<Participant[]>([]);
   const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState<string | null>(null);
 
   async function load() {
     const res = await fetch(
@@ -42,85 +43,177 @@ export function ParticipantsGrid({
     load();
   }, [hallSlug, activityId]);
 
-  async function updateRow(id: string, field: string, value: number | string) {
+  async function updateRow(
+    id: string,
+    patch: Partial<{
+      basePoints: number;
+      extraPoints: number;
+      rating: number | null;
+      computedPoints: number;
+      roleCode: string;
+      notes: string;
+    }>,
+  ) {
     const row = rows.find((r) => r.id === id);
     if (!row) return;
-    const body = {
-      id,
-      basePoints: field === "basePoints" ? Number(value) : row.basePoints,
-      extraPoints: field === "extraPoints" ? Number(value) : row.extraPoints,
-      rating: field === "rating" ? Number(value) : row.rating ?? undefined,
-      notes: field === "notes" ? String(value) : row.notes ?? undefined,
-    };
+    setSavingId(id);
     await fetch(`/api/h/${hallSlug}/activities/${activityId}/participants`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        id,
+        basePoints: patch.basePoints ?? row.basePoints,
+        extraPoints: patch.extraPoints ?? row.extraPoints,
+        rating: patch.rating !== undefined ? patch.rating : row.rating,
+        computedPoints: patch.computedPoints ?? row.computedPoints,
+        roleCode: patch.roleCode ?? row.roleCode,
+        notes: patch.notes ?? row.notes ?? undefined,
+      }),
     });
-    load();
+    await load();
+    setSavingId(null);
+  }
+
+  async function removeRow(id: string) {
+    if (!confirm("Remove this participant from the activity?")) return;
+    setSavingId(id);
+    await fetch(
+      `/api/h/${hallSlug}/activities/${activityId}/participants?id=${id}`,
+      { method: "DELETE" },
+    );
+    await load();
+    setSavingId(null);
   }
 
   if (loading) return <p className="text-sm text-slate-500">Loading...</p>;
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200">
-      <table className="min-w-full text-sm">
-        <thead className="bg-slate-50">
-          <tr>
-            <th className="px-3 py-2 text-left">Name</th>
-            <th className="px-3 py-2 text-left">SID</th>
-            <th className="px-3 py-2 text-left">Room</th>
-            <th className="px-3 py-2 text-left">Role</th>
-            <th className="px-3 py-2 text-left">Base</th>
-            <th className="px-3 py-2 text-left">Extra</th>
-            <th className="px-3 py-2 text-left">Rating</th>
-            <th className="px-3 py-2 text-left">Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.id} className="border-t border-slate-100">
-              <td className="px-3 py-2">{r.student?.nameFull ?? r.rawName}</td>
-              <td className="px-3 py-2">{r.student?.sid ?? r.rawSid}</td>
-              <td className="px-3 py-2">{r.rawRoom}</td>
-              <td className="px-3 py-2">{r.roleCode}</td>
-              <td className="px-3 py-2">
-                {readOnly ? (
-                  r.basePoints
-                ) : (
-                  <Input
-                    type="number"
-                    className="h-8 w-20"
-                    defaultValue={r.basePoints}
-                    onBlur={(e) =>
-                      updateRow(r.id, "basePoints", e.target.value)
-                    }
-                  />
-                )}
-              </td>
-              <td className="px-3 py-2">
-                {readOnly ? (
-                  r.extraPoints
-                ) : (
-                  <Input
-                    type="number"
-                    className="h-8 w-20"
-                    defaultValue={r.extraPoints}
-                    onBlur={(e) =>
-                      updateRow(r.id, "extraPoints", e.target.value)
-                    }
-                  />
-                )}
-              </td>
-              <td className="px-3 py-2">{r.rating ?? "—"}</td>
-              <td className="px-3 py-2 font-medium">{r.computedPoints}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {rows.length === 0 && (
-        <p className="p-4 text-sm text-slate-500">No participants yet</p>
+    <div className="space-y-2">
+      {!readOnly && (
+        <p className="text-sm text-slate-500">
+          Edit points inline, then tab out to save. Changes appear in the Points
+          tabulation immediately.
+        </p>
       )}
+      <div className="overflow-x-auto rounded-lg border border-slate-200">
+        <table className="min-w-full text-sm">
+          <thead className="bg-slate-50">
+            <tr>
+              <th className="px-3 py-2 text-left">Name</th>
+              <th className="px-3 py-2 text-left">SID</th>
+              <th className="px-3 py-2 text-left">Room</th>
+              <th className="px-3 py-2 text-left">Role</th>
+              <th className="px-3 py-2 text-left">Base</th>
+              <th className="px-3 py-2 text-left">Extra</th>
+              <th className="px-3 py-2 text-left">Rating</th>
+              <th className="px-3 py-2 text-left">Total</th>
+              {!readOnly && <th className="px-3 py-2 text-left">Actions</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id} className="border-t border-slate-100">
+                <td className="px-3 py-2">{r.student?.nameFull ?? r.rawName}</td>
+                <td className="px-3 py-2">{r.student?.sid ?? r.rawSid ?? "—"}</td>
+                <td className="px-3 py-2">{r.rawRoom ?? "—"}</td>
+                <td className="px-3 py-2">
+                  {readOnly ? (
+                    r.roleCode
+                  ) : (
+                    <Input
+                      className="h-8 w-28"
+                      defaultValue={r.roleCode}
+                      onBlur={(e) =>
+                        updateRow(r.id, { roleCode: e.target.value })
+                      }
+                    />
+                  )}
+                </td>
+                <td className="px-3 py-2">
+                  {readOnly ? (
+                    r.basePoints
+                  ) : (
+                    <Input
+                      type="number"
+                      step="0.5"
+                      className="h-8 w-20"
+                      defaultValue={r.basePoints}
+                      onBlur={(e) =>
+                        updateRow(r.id, { basePoints: Number(e.target.value) })
+                      }
+                    />
+                  )}
+                </td>
+                <td className="px-3 py-2">
+                  {readOnly ? (
+                    r.extraPoints
+                  ) : (
+                    <Input
+                      type="number"
+                      step="0.5"
+                      className="h-8 w-20"
+                      defaultValue={r.extraPoints}
+                      onBlur={(e) =>
+                        updateRow(r.id, { extraPoints: Number(e.target.value) })
+                      }
+                    />
+                  )}
+                </td>
+                <td className="px-3 py-2">
+                  {readOnly ? (
+                    (r.rating ?? "—")
+                  ) : (
+                    <Input
+                      type="number"
+                      step="0.5"
+                      className="h-8 w-20"
+                      defaultValue={r.rating ?? ""}
+                      onBlur={(e) =>
+                        updateRow(r.id, {
+                          rating: e.target.value ? Number(e.target.value) : null,
+                        })
+                      }
+                    />
+                  )}
+                </td>
+                <td className="px-3 py-2 font-medium">
+                  {readOnly ? (
+                    r.computedPoints
+                  ) : (
+                    <Input
+                      type="number"
+                      step="0.5"
+                      className="h-8 w-20 font-medium"
+                      defaultValue={r.computedPoints}
+                      onBlur={(e) =>
+                        updateRow(r.id, {
+                          computedPoints: Number(e.target.value),
+                        })
+                      }
+                    />
+                  )}
+                </td>
+                {!readOnly && (
+                  <td className="px-3 py-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={savingId === r.id}
+                      onClick={() => removeRow(r.id)}
+                    >
+                      Remove
+                    </Button>
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {rows.length === 0 && (
+          <p className="p-4 text-sm text-slate-500">No participants yet</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -129,14 +222,18 @@ export function AddParticipantForm({
   hallSlug,
   activityId,
   onAdded,
+  readOnly = false,
 }: {
   hallSlug: string;
   activityId: string;
   onAdded: () => void;
+  readOnly?: boolean;
 }) {
   const [sid, setSid] = useState("");
   const [roleCode, setRoleCode] = useState("PARTICIPANT");
   const [basePoints, setBasePoints] = useState(2);
+
+  if (readOnly) return null;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();

@@ -33,10 +33,19 @@ export default async function SettingsHallPage({
         <Breadcrumb
           items={[
             { label: "Dashboard", href: `/h/${hallSlug}` },
-            { label: "Settings" },
+            { label: "Settings", href: `/h/${hallSlug}/settings` },
+            { label: "Hall administration" },
           ]}
         />
-        <h2 className="text-2xl font-bold">Hall Settings</h2>
+        <h2 className="text-2xl font-bold">Hall administration</h2>
+        <p className="text-slate-600">
+          Manage users and hall-wide scoring rules. For your personal account,
+          go to{" "}
+          <a href={`/h/${hallSlug}/settings`} className="text-blue-600 hover:underline">
+            Settings
+          </a>
+          .
+        </p>
 
         <Card>
           <CardHeader>

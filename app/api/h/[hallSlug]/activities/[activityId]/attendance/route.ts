@@ -1,5 +1,6 @@
 import { requireHallAccess } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { recomputeAndSaveParticipantPoints } from "@/lib/scoring/recomputeParticipantPoints";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -68,22 +69,7 @@ export async function POST(
     },
   });
 
-  const trainingCount = await prisma.attendance.count({
-    where: { participantId: body.participantId, attended: true },
-  });
-
-  const { computePoints } = await import("@/lib/scoring/rules");
-  const computedPoints = computePoints({
-    basePoints: participant.basePoints,
-    extraPoints: participant.extraPoints,
-    trainingCount,
-    rule: { formula: "participation + extra + trainingCount" },
-  });
-
-  await prisma.activityParticipant.update({
-    where: { id: body.participantId },
-    data: { computedPoints },
-  });
+  await recomputeAndSaveParticipantPoints(body.participantId);
 
   return NextResponse.json(record);
 }

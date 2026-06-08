@@ -93,6 +93,7 @@ model Hall {
   createdAt DateTime @default(now())
 
   users          User[]
+  userHalls      UserHall[]
   academicYears  AcademicYear[]
   students       Student[]
   uploads        Upload[]
@@ -111,6 +112,7 @@ model User {
   createdAt     DateTime  @default(now())
 
   hall              Hall?      @relation(fields: [hallId], references: [id])
+  userHalls         UserHall[]
   accounts          Account[]
   sessions          Session[]
   activitiesCreated Activity[] @relation("ActivityCreatedBy")
@@ -119,6 +121,18 @@ model User {
   assets            Asset[]
   auditLogs         AuditLog[]
   snapshots         SemesterSnapshot[]
+}
+
+model UserHall {
+  id     String @id @default(cuid())
+  userId String
+  hallId String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hall Hall @relation(fields: [hallId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, hallId])
+  @@index([hallId])
 }
 
 model Account {
@@ -294,6 +308,7 @@ model ActivityParticipant {
 
   @@index([activityId])
   @@index([studentId])
+  @@index([activityId, studentId])
 }
 
 model ActivitySession {
@@ -342,6 +357,7 @@ model Upload {
   activityId       String?
   kind             UploadKind
   originalFilename String
+  sheetName        String?
   storageKey       String
   mimeType         String?
   sizeBytes        Int?
@@ -350,6 +366,7 @@ model Upload {
   parseStatus      ParseStatus @default(PENDING)
   parseLogJson     Json?
   parsedAt         DateTime?
+  sharedWithUserIds String[]   @default([])
 
   hall     Hall      @relation(fields: [hallId], references: [id], onDelete: Cascade)
   semester Semester? @relation(fields: [semesterId], references: [id])

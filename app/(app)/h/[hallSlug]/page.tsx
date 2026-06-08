@@ -1,6 +1,7 @@
-import { auth, requireHallAccess } from "@/lib/auth";
+import { auth, requireHallAccess, canFinalize } from "@/lib/auth";
 import { prisma, getCurrentSemester } from "@/lib/db";
 import { AppShell } from "@/components/layout/app-shell";
+import { DataManagerPanel } from "@/components/dashboard/data-manager-panel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
 import { slugifyYear } from "@/lib/utils";
@@ -18,33 +19,46 @@ export default async function HallDashboardPage({
   if (!hall) redirect("/signin");
 
   const session = await auth();
+  const canClearAll = canFinalize(session?.user?.role ?? "TUTOR");
   const current = await getCurrentSemester(hall.id);
 
-  const [studentCount, activityCount, pendingUploads] = await Promise.all([
-    current
-      ? prisma.enrollment.count({ where: { semesterId: current.semester.id } })
-      : 0,
-    current
-      ? prisma.activity.count({
-          where: {
-            category: { semesterId: current.semester.id },
-          },
-        })
-      : 0,
-    prisma.upload.count({
-      where: {
-        hallId: hall.id,
-        parseStatus: { in: ["PENDING", "PARTIAL"] },
-      },
-    }),
-  ]);
+  const semesterId = current?.semester.id;
 
-  const recentUploads = await prisma.upload.findMany({
-    where: { hallId: hall.id },
-    orderBy: { uploadedAt: "desc" },
-    take: 5,
-    include: { uploadedBy: { select: { name: true } } },
-  });
+  const [studentCount, activityCount, pendingUploads, allUploads, allActivities] =
+    await Promise.all([
+      semesterId
+        ? prisma.enrollment.count({ where: { semesterId } })
+        : 0,
+      semesterId
+        ? prisma.activity.count({
+            where: { category: { semesterId } },
+          })
+        : 0,
+      prisma.upload.count({
+        where: {
+          hallId: hall.id,
+          parseStatus: { in: ["PENDING", "PARTIAL"] },
+        },
+      }),
+      prisma.upload.findMany({
+        where: { hallId: hall.id },
+        orderBy: { uploadedAt: "desc" },
+        include: {
+          activity: { select: { name: true } },
+          _count: { select: { staging: true } },
+        },
+      }),
+      semesterId
+        ? prisma.activity.findMany({
+            where: { category: { semesterId } },
+            include: {
+              category: { select: { code: true, name: true } },
+              _count: { select: { participants: true, uploads: true } },
+            },
+            orderBy: [{ sortKey: "asc" }, { name: "asc" }],
+          })
+        : Promise.resolve([]),
+    ]);
 
   return (
     <AppShell
@@ -120,23 +134,33 @@ export default async function HallDashboardPage({
 
         <Card>
           <CardHeader>
-            <CardTitle>Recent uploads</CardTitle>
+            <CardTitle>Manage data</CardTitle>
           </CardHeader>
           <CardContent>
-            {recentUploads.length === 0 ? (
-              <p className="text-sm text-slate-500">No uploads yet</p>
-            ) : (
-              <ul className="divide-y divide-slate-100">
-                {recentUploads.map((u) => (
-                  <li key={u.id} className="flex justify-between py-2 text-sm">
-                    <span>{u.originalFilename}</span>
-                    <span className="text-slate-500">
-                      {u.parseStatus} · {u.uploadedBy.name}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <DataManagerPanel
+              hallSlug={hallSlug}
+              hallName={hall.name}
+              canClearAll={canClearAll}
+              uploads={allUploads.map((u) => ({
+                id: u.id,
+                originalFilename: u.originalFilename,
+                sheetName: u.sheetName,
+                parseStatus: u.parseStatus,
+                kind: u.kind,
+                uploadedAt: u.uploadedAt.toISOString(),
+                activityName: u.activity?.name ?? null,
+                stagingCount: u._count.staging,
+              }))}
+              activities={allActivities.map((a) => ({
+                id: a.id,
+                name: a.name,
+                categoryCode: a.category.code,
+                categoryName: a.category.name,
+                status: a.status,
+                participantCount: a._count.participants,
+                uploadCount: a._count.uploads,
+              }))}
+            />
           </CardContent>
         </Card>
       </div>

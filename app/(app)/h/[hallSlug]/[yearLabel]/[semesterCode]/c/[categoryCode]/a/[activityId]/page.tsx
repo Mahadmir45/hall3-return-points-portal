@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FileUploader } from "@/components/upload/file-uploader";
+import { uploadCardTitle } from "@/lib/upload-labels";
 import Link from "next/link";
 
 export default async function ActivityOverviewPage({
@@ -62,7 +63,7 @@ export default async function ActivityOverviewPage({
 
         <Card>
           <CardHeader>
-            <CardTitle>Upload RLA Report</CardTitle>
+            <CardTitle>{uploadCardTitle(p.categoryCode)}</CardTitle>
           </CardHeader>
           <CardContent>
             <FileUploader

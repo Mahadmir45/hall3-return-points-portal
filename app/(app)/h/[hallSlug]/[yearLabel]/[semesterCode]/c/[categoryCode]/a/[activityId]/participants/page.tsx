@@ -1,28 +1,25 @@
-"use client";
+import { requireHallAccess } from "@/lib/auth";
+import { prisma } from "@/lib/db";
+import { ParticipantsPageClient } from "@/components/activity/participants-page-client";
 
-import {
-  ParticipantsGrid,
-  AddParticipantForm,
-} from "@/components/activity/participants-grid";
-import { useParams } from "next/navigation";
-import { useState } from "react";
+export default async function ActivityParticipantsPage({
+  params,
+}: {
+  params: Promise<{ hallSlug: string; activityId: string }>;
+}) {
+  const { hallSlug, activityId } = await params;
+  await requireHallAccess(hallSlug);
 
-export default function ActivityParticipantsPage() {
-  const params = useParams<{ hallSlug: string; activityId: string }>();
-  const [key, setKey] = useState(0);
+  const activity = await prisma.activity.findUnique({
+    where: { id: activityId },
+    select: { status: true },
+  });
 
   return (
-    <div className="space-y-4">
-      <AddParticipantForm
-        hallSlug={params.hallSlug}
-        activityId={params.activityId}
-        onAdded={() => setKey((k) => k + 1)}
-      />
-      <ParticipantsGrid
-        key={key}
-        hallSlug={params.hallSlug}
-        activityId={params.activityId}
-      />
-    </div>
+    <ParticipantsPageClient
+      hallSlug={hallSlug}
+      activityId={activityId}
+      readOnly={activity?.status === "FINALIZED"}
+    />
   );
 }

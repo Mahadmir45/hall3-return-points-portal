@@ -41,15 +41,17 @@ function SignInForm() {
       return;
     }
 
-    window.location.href = callbackUrl;
+    window.location.href = callbackUrl.startsWith("/h/")
+      ? callbackUrl
+      : "/";
   }
 
   return (
     <Card className="w-full max-w-md">
       <CardHeader>
-        <CardTitle>Hall 3 Return Points</CardTitle>
+        <CardTitle>Return Points Portal</CardTitle>
         <CardDescription>
-          Sign in with your tutor credentials
+          Sign in to manage resident return points across halls
         </CardDescription>
       </CardHeader>
       <CardContent>

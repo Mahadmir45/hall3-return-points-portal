@@ -23,10 +23,10 @@ export default async function StudentPointsPage({
 
   const participants = await prisma.activityParticipant.findMany({
     where: {
-      studentId,
+      OR: [{ studentId }, { rawSid: student.sid }],
       activity: semesterId
         ? { category: { semesterId } }
-        : undefined,
+        : { category: { semester: { academicYear: { hallId: hall.id } } } },
     },
     include: {
       activity: { include: { category: true } },
@@ -34,7 +34,14 @@ export default async function StudentPointsPage({
     orderBy: { activity: { name: "asc" } },
   });
 
-  const total = participants.reduce((s, p) => s + p.computedPoints, 0);
+  const seen = new Set<string>();
+  const unique = participants.filter((p) => {
+    if (seen.has(p.id)) return false;
+    seen.add(p.id);
+    return true;
+  });
+
+  const total = unique.reduce((s, p) => s + p.computedPoints, 0);
 
   return (
     <AppShell hallName={hall.name} hallSlug={hallSlug} userName={session.user.name}>
@@ -63,7 +70,7 @@ export default async function StudentPointsPage({
               </tr>
             </thead>
             <tbody>
-              {participants.map((p) => (
+              {unique.map((p) => (
                 <tr key={p.id} className="border-t">
                   <td className="px-3 py-2">{p.activity.name}</td>
                   <td className="px-3 py-2">{p.activity.category.name}</td>

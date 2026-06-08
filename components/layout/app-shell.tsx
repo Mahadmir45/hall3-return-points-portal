@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { HallSwitcher } from "@/components/layout/hall-switcher";
 
 export function Breadcrumb({
   items,
@@ -40,7 +41,7 @@ export function AppShell({
     { href: `/h/${hallSlug}/roster`, label: "Roster" },
     { href: `/h/${hallSlug}/points`, label: "Points" },
     { href: `/h/${hallSlug}/audit`, label: "Audit" },
-    { href: `/h/${hallSlug}/settings/hall`, label: "Settings" },
+    { href: `/h/${hallSlug}/settings`, label: "Settings" },
   ];
 
   return (
@@ -54,6 +55,7 @@ export function AppShell({
             <h1 className="text-xl font-bold text-slate-900">{hallName}</h1>
           </div>
           <div className="flex items-center gap-4">
+            <HallSwitcher currentSlug={hallSlug} />
             <span className="text-sm text-slate-600">{userName}</span>
             <form action="/api/auth/signout" method="POST">
               <button

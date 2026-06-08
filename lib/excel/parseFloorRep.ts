@@ -4,6 +4,8 @@ import {
   emptyParseLog,
   findRowContaining,
   loadWorksheetRows,
+  looksLikeSid,
+  normalizeSid,
   type ParseLog,
 } from "./helpers";
 import type { StagedParticipant } from "./parseEvent";
@@ -11,6 +13,109 @@ import type { StagedParticipant } from "./parseEvent";
 export interface FloorRepParseResult {
   participants: StagedParticipant[];
   log: ParseLog;
+}
+
+function looksLikeFloor(val: unknown): boolean {
+  const s = cellValue(val).replace(/\s/g, "");
+  return /^\d+\/F$/i.test(s);
+}
+
+function looksLikeRoom(val: unknown): boolean {
+  const s = cellValue(val).toUpperCase();
+  return /^\d{3}[A-Z]?$/.test(s);
+}
+
+function findHeaderRow(rows: unknown[][]): number {
+  const patterns: string[][] = [
+    ["name of floor", "sid", "returning point"],
+    ["name of floor", "sid", "rating"],
+    ["floor representative", "sid", "room"],
+    ["floor rep", "sid", "returning point"],
+  ];
+  for (const needles of patterns) {
+    const row = findRowContaining(rows, needles);
+    if (row >= 0) return row;
+  }
+  return -1;
+}
+
+function parseFloorRepRow(
+  row: unknown[],
+  rowIndex: number,
+): StagedParticipant | null {
+  let sidCol = -1;
+  for (let c = 0; c < row.length; c++) {
+    if (looksLikeSid(row[c])) {
+      sidCol = c;
+      break;
+    }
+  }
+  if (sidCol < 0) return null;
+
+  const sid = normalizeSid(row[sidCol]);
+  if (!sid) return null;
+
+  let name = "";
+  if (sidCol >= 1) {
+    const beforeSid = cellValue(row[sidCol - 1]);
+    if (sidCol >= 3 && looksLikeFloor(row[0])) {
+      // Floor | RT | Name | SID  OR  Floor | RT | ... | Name | SID
+      name = beforeSid;
+    } else if (sidCol === 2 && looksLikeFloor(row[0])) {
+      // Floor | Name | SID
+      name = beforeSid;
+    } else if (sidCol === 1) {
+      // Name | SID | Room | ...
+      name = cellValue(row[0]);
+    } else {
+      name = beforeSid;
+    }
+  }
+
+  if (
+    !name ||
+    looksLikeSid(name) ||
+    looksLikeRoom(name) ||
+    looksLikeFloor(name) ||
+    name.toLowerCase().includes("floor rep")
+  ) {
+    return null;
+  }
+
+  const roomRaw = cellValue(row[sidCol + 1]);
+  const rawRoom = looksLikeRoom(roomRaw) ? roomRaw : undefined;
+
+  let ratingCol = sidCol + (rawRoom ? 2 : 1);
+  let ptsCol = ratingCol + 1;
+  let justCol = ptsCol + 1;
+
+  // When room is missing, rating/points shift left
+  if (!rawRoom && cellNumber(row[sidCol + 1]) > 0) {
+    ratingCol = sidCol + 1;
+    ptsCol = sidCol + 2;
+    justCol = sidCol + 3;
+  }
+
+  const ratingVal = cellNumber(row[ratingCol]);
+  const rating = ratingVal > 0 ? ratingVal : undefined;
+  const pts = cellNumber(row[ptsCol]);
+  const justification = cellValue(row[justCol]) || undefined;
+
+  const floor = looksLikeFloor(row[0]) ? cellValue(row[0]) : undefined;
+  const notes = [floor, justification].filter(Boolean).join(" — ") || undefined;
+
+  return {
+    rawName: name,
+    rawSid: sid,
+    rawRoom,
+    roleCode: "FLOOR_REP",
+    basePoints: pts,
+    extraPoints: 0,
+    rating,
+    computedPoints: pts,
+    notes,
+    rowIndex,
+  };
 }
 
 export async function parseFloorRepSheet(
@@ -21,63 +126,23 @@ export async function parseFloorRepSheet(
   const log = emptyParseLog();
   const participants: StagedParticipant[] = [];
 
-  const headerRow = findRowContaining(rows, [
-    "floor rep",
-    "sid",
-    "returning point",
-  ]);
-  const altHeader = findRowContaining(rows, ["name of floor", "sid", "rating"]);
-  const hRow = headerRow >= 0 ? headerRow : altHeader;
-
+  const hRow = findHeaderRow(rows);
   if (hRow < 0) {
     log.errors.push("Could not find floor rep header row");
     return { participants, log };
   }
-
-  const header = rows[hRow];
-  const nameCol = header.findIndex((c) =>
-    cellValue(c).toLowerCase().includes("name"),
-  );
-  const sidCol = header.findIndex((c) =>
-    cellValue(c).toLowerCase().includes("sid"),
-  );
-  const roomCol = header.findIndex((c) =>
-    cellValue(c).toLowerCase().includes("room"),
-  );
-  const ratingCol = header.findIndex((c) =>
-    cellValue(c).toLowerCase().includes("rating"),
-  );
-  const ptsCol = header.findIndex((c) =>
-    cellValue(c).toLowerCase().includes("returning point"),
-  );
-  const justCol = header.findIndex((c) =>
-    cellValue(c).toLowerCase().includes("justification"),
-  );
+  log.headerRow = hRow + 1;
 
   for (let r = hRow + 1; r < rows.length; r++) {
     const row = rows[r];
-    const sid = sidCol >= 0 ? cellValue(row[sidCol]) : "";
-    const name = nameCol >= 0 ? cellValue(row[nameCol]) : "";
-    if (!sid && !name) continue;
-    if (name.toLowerCase().includes("floor rep")) continue;
+    const rowText = row.map(cellValue).join(" ").toLowerCase();
+    if (!rowText.trim()) continue;
+    if (rowText.includes("total") && rowText.includes("return")) continue;
 
-    const pts = ptsCol >= 0 ? cellNumber(row[ptsCol]) : 0;
-    const rating = ratingCol >= 0 ? cellNumber(row[ratingCol]) : undefined;
-    const justification =
-      justCol >= 0 ? cellValue(row[justCol]) : undefined;
+    const parsed = parseFloorRepRow(row, r + 1);
+    if (!parsed) continue;
 
-    participants.push({
-      rawName: name,
-      rawSid: sid,
-      rawRoom: roomCol >= 0 ? cellValue(row[roomCol]) : undefined,
-      roleCode: "FLOOR_REP",
-      basePoints: pts,
-      extraPoints: 0,
-      rating,
-      computedPoints: pts,
-      notes: justification,
-      rowIndex: r + 1,
-    });
+    participants.push(parsed);
     log.matched++;
   }
 

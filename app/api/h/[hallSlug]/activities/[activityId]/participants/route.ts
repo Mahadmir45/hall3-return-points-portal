@@ -1,6 +1,9 @@
 import { requireHallAccess } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { computePoints } from "@/lib/scoring/rules";
+import {
+  recomputeParticipantPoints,
+  computeParticipantPointsFromRules,
+} from "@/lib/scoring/recomputeParticipantPoints";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -14,7 +17,7 @@ export async function GET(
   const participants = await prisma.activityParticipant.findMany({
     where: { activityId },
     include: { student: true },
-    orderBy: { rawName: "asc" },
+    orderBy: [{ roleCode: "asc" }, { rawName: "asc" }],
   });
 
   return NextResponse.json(participants);
@@ -28,8 +31,9 @@ const upsertSchema = z.object({
   roleCode: z.string(),
   basePoints: z.number(),
   extraPoints: z.number().optional(),
-  rating: z.number().optional(),
+  rating: z.number().nullable().optional(),
   notes: z.string().optional(),
+  computedPoints: z.number().optional(),
 });
 
 export async function POST(
@@ -40,11 +44,28 @@ export async function POST(
   await requireHallAccess(hallSlug);
 
   const body = upsertSchema.parse(await req.json());
-  const computedPoints = computePoints({
-    basePoints: body.basePoints,
-    extraPoints: body.extraPoints ?? 0,
-    rating: body.rating,
+
+  const activity = await prisma.activity.findUnique({
+    where: { id: activityId },
+    include: { category: { include: { semester: { include: { academicYear: true } } } } },
   });
+  if (!activity) {
+    return NextResponse.json({ error: "Activity not found" }, { status: 404 });
+  }
+
+  const hallId = activity.category.semester.academicYear.hallId;
+  const rules = await prisma.scoringRule.findMany({ where: { hallId } });
+
+  const computedPoints =
+    body.computedPoints ??
+    computeParticipantPointsFromRules({
+      activityType: activity.type,
+      categoryId: activity.categoryId,
+      basePoints: body.basePoints,
+      extraPoints: body.extraPoints ?? 0,
+      rating: body.rating,
+      rules,
+    });
 
   const participant = await prisma.activityParticipant.create({
     data: {
@@ -70,9 +91,10 @@ const patchSchema = z.object({
   id: z.string(),
   basePoints: z.number().optional(),
   extraPoints: z.number().optional(),
-  rating: z.number().optional(),
+  rating: z.number().nullable().optional(),
   notes: z.string().optional(),
   roleCode: z.string().optional(),
+  computedPoints: z.number().optional(),
 });
 
 export async function PATCH(
@@ -86,22 +108,37 @@ export async function PATCH(
   const existing = await prisma.activityParticipant.findFirst({
     where: { id: body.id, activityId },
   });
-  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!existing) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
-  const computedPoints = computePoints({
-    basePoints: body.basePoints ?? existing.basePoints,
-    extraPoints: body.extraPoints ?? existing.extraPoints,
-    rating: body.rating ?? existing.rating,
+  const activity = await prisma.activity.findUnique({
+    where: { id: activityId },
   });
+  if (activity?.status === "FINALIZED") {
+    return NextResponse.json(
+      { error: "Activity is finalized and read-only" },
+      { status: 403 },
+    );
+  }
+
+  const computedPoints =
+    body.computedPoints !== undefined
+      ? body.computedPoints
+      : await recomputeParticipantPoints(body.id, {
+          basePoints: body.basePoints,
+          extraPoints: body.extraPoints,
+          rating: body.rating,
+        });
 
   const updated = await prisma.activityParticipant.update({
     where: { id: body.id },
     data: {
-      basePoints: body.basePoints,
-      extraPoints: body.extraPoints,
-      rating: body.rating,
-      notes: body.notes,
-      roleCode: body.roleCode as never,
+      basePoints: body.basePoints ?? existing.basePoints,
+      extraPoints: body.extraPoints ?? existing.extraPoints,
+      rating: body.rating !== undefined ? body.rating : existing.rating,
+      notes: body.notes !== undefined ? body.notes : existing.notes,
+      roleCode: (body.roleCode as never) ?? existing.roleCode,
       computedPoints,
     },
   });
@@ -115,6 +152,16 @@ export async function DELETE(
 ) {
   const { hallSlug, activityId } = await params;
   await requireHallAccess(hallSlug);
+
+  const activity = await prisma.activity.findUnique({
+    where: { id: activityId },
+  });
+  if (activity?.status === "FINALIZED") {
+    return NextResponse.json(
+      { error: "Activity is finalized and read-only" },
+      { status: 403 },
+    );
+  }
 
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");

@@ -18,6 +18,12 @@ interface Category {
   name: string;
 }
 
+interface PointsMeta {
+  activityCount: number;
+  activitiesWithPoints: number;
+  participantRowCount: number;
+}
+
 export function PointsPageClient({
   semesterId,
   canFinalize,
@@ -28,6 +34,7 @@ export function PointsPageClient({
   const params = useParams<{ hallSlug: string }>();
   const [totals, setTotals] = useState<TotalRow[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [meta, setMeta] = useState<PointsMeta | null>(null);
 
   useEffect(() => {
     fetch(
@@ -37,6 +44,7 @@ export function PointsPageClient({
       .then((data) => {
         setTotals(data.totals ?? []);
         setCategories(data.categories ?? []);
+        setMeta(data.meta ?? null);
       });
   }, [params.hallSlug, semesterId]);
 
@@ -56,6 +64,14 @@ export function PointsPageClient({
 
   return (
     <div className="space-y-4">
+      {meta && (
+        <p className="text-sm text-slate-600">
+          Tabulating {meta.activitiesWithPoints} of {meta.activityCount}{" "}
+          activities ({meta.participantRowCount} participant rows). New
+          activities appear here automatically once they have participants with
+          matched SIDs.
+        </p>
+      )}
       <div className="flex gap-2">
         <Button variant="outline" onClick={exportXlsx}>
           Export to Excel
