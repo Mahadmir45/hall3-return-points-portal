@@ -5,6 +5,7 @@ import {
   emptyParseLog,
   findColumnIndex,
   findRowContaining,
+  findTotalPointsColumn,
   loadWorksheetRows,
   looksLikeSid,
   type ParseLog,
@@ -203,7 +204,7 @@ function parseCompactTypeFormat(rows: unknown[][]): IcfdParseResult {
     for (const sc of sessionCols) addSession(sessions, seenSessions, sc.label);
 
     const subTotalCol = findColumnIndex(header, "subtotal");
-    const finalTotalCol = findColumnIndex(header, "final total");
+    const finalTotalCol = findTotalPointsColumn(header);
     const nextHeader = headerRows.find((r) => r > headerRowIdx) ?? rows.length;
 
     for (let r = headerRowIdx + 1; r < nextHeader; r++) {
@@ -226,7 +227,8 @@ function parseCompactTypeFormat(rows: unknown[][]): IcfdParseResult {
       const computedPoints = cellNumber(
         row[finalTotalCol >= 0 ? finalTotalCol : row.length - 1],
       );
-      const extraPoints = Math.max(0, computedPoints - basePoints);
+      const totalPoints = computedPoints || basePoints;
+      const extraPoints = Math.max(0, totalPoints - basePoints);
 
       participants.push({
         rawName: name,
@@ -235,7 +237,7 @@ function parseCompactTypeFormat(rows: unknown[][]): IcfdParseResult {
         roleCode,
         basePoints,
         extraPoints,
-        computedPoints: computedPoints || basePoints + extraPoints,
+        computedPoints: totalPoints,
         rowIndex: r + 1,
         attendance,
       });
@@ -304,6 +306,7 @@ function parseLegacyParticipantRow(
   const computedPoints =
     cellNumber(row[columns.finalCol >= 0 ? columns.finalCol : row.length - 1]) ||
     basePoints + extraPoints;
+  const totalPoints = computedPoints || basePoints + extraPoints;
 
   return {
     role,
@@ -314,7 +317,7 @@ function parseLegacyParticipantRow(
       roleCode: isRoleTag(roleCell) ? mapIcfdRole(roleCell) : role,
       basePoints,
       extraPoints,
-      computedPoints,
+      computedPoints: totalPoints,
       rowIndex: r + 1,
       attendance,
       notes: cellValue(row[0]) ? `Row ${cellValue(row[0])}` : undefined,
@@ -365,7 +368,7 @@ function parseLegacyFormat(rows: unknown[][]): IcfdParseResult {
 
   const partPtsCol = findColumnIndex(header, "participation points");
   const extraPtsCol = findColumnIndex(header, "extra points");
-  const finalCol = findColumnIndex(header, "final total");
+  const finalCol = findTotalPointsColumn(header);
 
   const columns = {
     roleCol,
@@ -436,7 +439,7 @@ function parseLegacyFormat(rows: unknown[][]): IcfdParseResult {
         sessionCols: subSessions.length ? subSessions : sessionCols,
         partPtsCol: findColumnIndex(subHeader, "participation points"),
         extraPtsCol: findColumnIndex(subHeader, "extra points"),
-        finalCol: findColumnIndex(subHeader, "final total"),
+        finalCol: findTotalPointsColumn(subHeader),
       });
       continue;
     }

@@ -172,7 +172,6 @@ export async function processUpload(uploadId: string) {
             computedPoints: p.computedPoints,
             notes: p.notes,
             rowIndex: p.rowIndex,
-            sessionData: p.sessionData as Prisma.InputJsonValue,
           });
         }
         break;

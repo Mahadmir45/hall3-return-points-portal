@@ -1,13 +1,46 @@
 import { formatSid } from "@/lib/utils";
 
+/** Unwrap ExcelJS cell payloads (formulas, rich text, hyperlinks). */
+export function unwrapCellValue(val: unknown): unknown {
+  if (val == null) return val;
+  if (val instanceof Date) return val;
+  if (typeof val !== "object") return val;
+
+  const obj = val as Record<string, unknown>;
+
+  if ("result" in obj && obj.result != null && obj.result !== val) {
+    return unwrapCellValue(obj.result);
+  }
+
+  if (Array.isArray(obj.richText)) {
+    return (obj.richText as { text?: string }[])
+      .map((part) => part.text ?? "")
+      .join("");
+  }
+
+  if (typeof obj.text === "string") return obj.text;
+
+  if (obj.hyperlink && typeof obj.hyperlink === "string") {
+    return obj.text ?? obj.hyperlink;
+  }
+
+  return val;
+}
+
 export function cellValue(val: unknown): string {
-  if (val == null) return "";
-  if (val instanceof Date) return val.toISOString();
-  return String(val).trim();
+  const unwrapped = unwrapCellValue(val);
+  if (unwrapped == null) return "";
+  if (unwrapped instanceof Date) return unwrapped.toISOString();
+  return String(unwrapped).trim();
 }
 
 export function cellNumber(val: unknown): number {
-  const s = cellValue(val);
+  const unwrapped = unwrapCellValue(val);
+  if (typeof unwrapped === "number" && Number.isFinite(unwrapped)) {
+    return unwrapped;
+  }
+
+  const s = cellValue(unwrapped);
   if (!s || s.toLowerCase() === "na" || s.includes("add above")) return 0;
   const n = parseFloat(s.replace(/[^\d.-]/g, ""));
   return Number.isFinite(n) ? n : 0;
@@ -33,6 +66,26 @@ export function findColumnIndex(
   const lower = needle.toLowerCase();
   for (let c = startCol; c < headerRow.length; c++) {
     if (cellValue(headerRow[c]).toLowerCase().includes(lower)) return c;
+  }
+  return -1;
+}
+
+/** Find a total-points column: "final total", "gained pts", "returning point", etc. */
+export function findTotalPointsColumn(headerRow: unknown[]): number {
+  const candidates = [
+    "final total",
+    "gained pts",
+    "gained pt",
+    "returning point",
+    "returning points",
+    "total points",
+    "total point",
+    "subtotal",
+    "total",
+  ];
+  for (const label of candidates) {
+    const idx = findColumnIndex(headerRow, label);
+    if (idx >= 0) return idx;
   }
   return -1;
 }
@@ -86,7 +139,10 @@ export function resolveBandColumns(
   // Positional fallback when participant band has no SID/Room headers (Welcome Party layout)
   if (sidCol < 0) sidCol = nameCol + 1;
   if (roomCol < 0) roomCol = nameCol + 2;
-  if (ptsCol < 0) ptsCol = nameCol + 3;
+  if (ptsCol < 0) {
+    const totalCol = findTotalPointsColumn(header.slice(nameCol, end));
+    ptsCol = totalCol >= 0 ? nameCol + totalCol : nameCol + 3;
+  }
   if (ratingCol < 0) ratingCol = ptsCol + 1;
 
   return { nameCol, sidCol, roomCol, ptsCol, ratingCol };

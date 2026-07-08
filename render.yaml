@@ -1,12 +1,14 @@
 services:
   - type: web
     name: hall3-return-points
-    runtime: docker
+    runtime: node
     plan: free
+    buildCommand: npm ci && npx prisma generate && npm run build
+    startCommand: bash scripts/start-production.sh
     healthCheckPath: /signin
     disk:
       name: uploads
-      mountPath: /app/uploads
+      mountPath: /opt/render/project/src/uploads
       sizeGB: 1
     envVars:
       - key: NODE_ENV

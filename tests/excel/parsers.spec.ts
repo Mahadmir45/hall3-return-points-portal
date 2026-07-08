@@ -6,7 +6,7 @@ import { parseRosterSheet } from "@/lib/excel/parseRoster";
 import { parseFloorRepSheet } from "@/lib/excel/parseFloorRep";
 import { parseIcfdSheet } from "@/lib/excel/parseIcfd";
 import { parseHsoSheet, hsoEntriesToParticipants } from "@/lib/excel/parseHso";
-import { normalizeSid, cellNumber } from "@/lib/excel/helpers";
+import { normalizeSid, cellNumber, cellValue } from "@/lib/excel/helpers";
 import { computePoints } from "@/lib/scoring/rules";
 
 const samplesDir = join(process.cwd(), "data", "samples");
@@ -23,6 +23,11 @@ describe("excel helpers", () => {
   it("parses numeric cells", () => {
     expect(cellNumber("add above")).toBe(0);
     expect(cellNumber(5)).toBe(5);
+  });
+
+  it("parses formula result objects from ExcelJS", () => {
+    expect(cellNumber({ formula: "SUM(A1)", result: 7 })).toBe(7);
+    expect(cellValue({ formula: "SUM(A1)", result: 4 })).toBe("4");
   });
 });
 
@@ -117,6 +122,34 @@ describe("sample file parsers", () => {
     const adnan = result.participants.find((p) => p.rawSid === "58601963");
     expect(adnan?.rawName).toContain("ADNAN");
     expect(adnan?.rawRoom).toBe("206A");
+  });
+
+  it("parses icfd_data compact sheet with formula total columns", async () => {
+    const buf = readFileSync(join(samplesDir, "icfd_data.xlsx"));
+    const result = await parseIcfdSheet(buf);
+    expect(result.log.errors).toHaveLength(0);
+    expect(result.participants.length).toBeGreaterThanOrEqual(20);
+    const jalil = result.participants.find((p) => p.rawSid === "58583850");
+    expect(jalil?.rawName).toContain("JALIL");
+    expect(jalil?.computedPoints).toBeGreaterThan(0);
+    expect(
+      result.participants.filter((p) => p.computedPoints > 0).length,
+    ).toBeGreaterThan(15);
+  });
+
+  it("parses test-event-upload with SID, name, and gained points per row", async () => {
+    const buf = readFileSync(join(samplesDir, "test-event-upload.xlsx"));
+    const result = await parseEventSheet(buf);
+    expect(result.log.errors).toHaveLength(0);
+    expect(result.participants.length).toBeGreaterThanOrEqual(20);
+    const adnan = result.participants.find((p) => p.rawSid === "58601963");
+    expect(adnan?.rawName).toContain("ADNAN");
+    expect(adnan?.computedPoints).toBe(5);
+    expect(
+      result.participants.every(
+        (p) => p.rawSid && p.rawName && p.computedPoints >= 0,
+      ),
+    ).toBe(true);
   });
 
   it("parses basketball ICFD reference file (compact TYPE layout)", async () => {

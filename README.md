@@ -13,17 +13,28 @@ Web portal for Hall 3 tutors to manage resident return points across Events, ICF
 
 ## Deploy to the internet
 
-### Option A — One-click Render (recommended, permanent)
+### Option A — Render from GitHub (recommended, no Docker)
 
-1. Open **[Deploy to Render](https://render.com/deploy?repo=https://github.com/Mahadmir45/hall3-return-points-portal)** and sign in with GitHub.
-2. Click **Apply** — Render creates the web service + Postgres from `render.yaml`.
-3. After the first deploy finishes, open the service **Environment** tab and set:
+1. Push this repo to GitHub: https://github.com/Mahadmir45/hall3-return-points-portal
+2. Open **[Deploy to Render](https://render.com/deploy?repo=https://github.com/Mahadmir45/hall3-return-points-portal)** and sign in with GitHub.
+3. Click **Apply** — Render creates the web service + Postgres from `render.yaml` using the **Node** runtime (not Docker).
+4. After the first deploy finishes, open the service **Environment** tab and set:
    - `AUTH_URL` → your Render URL (e.g. `https://hall3-return-points.onrender.com`)
-4. Wait for the redeploy, then sign in with `tutor@hall3.dev` / `hall3dev`.
+5. Wait for the redeploy, then sign in with `tutor@hall3.dev` / `hall3dev`.
 
-The Docker image runs `prisma db push` + seed on startup, so Hall 3 users and categories are ready automatically.
+The start script runs `prisma db push` + seed on boot, so Hall 3 users and categories are ready automatically.
 
-### Option B — Quick tunnel (temporary, for local dev)
+GitHub Actions (`.github/workflows/ci.yml`) runs tests and a production build on every push to `main`.
+
+### Option B — Vercel from GitHub
+
+1. Import the GitHub repo at [vercel.com/new](https://vercel.com/new).
+2. Add a hosted Postgres database (e.g. [Neon](https://neon.tech)) and set `DATABASE_URL` in Vercel env vars.
+3. Set `AUTH_SECRET` (run `openssl rand -base64 32`) and `AUTH_URL` to your Vercel domain.
+4. Set `USE_LOCAL_STORAGE=true` only if you add persistent blob storage; for uploads in production prefer S3/R2 env vars from `.env.example`.
+5. Deploy — `vercel.json` configures the Next.js build.
+
+### Option C — Quick tunnel (temporary, for local dev)
 
 While `npm run dev` is running on your machine:
 

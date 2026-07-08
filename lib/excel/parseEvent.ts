@@ -6,6 +6,7 @@ import {
   findColumnIndex,
   findExactColumnIndex,
   findRowContaining,
+  findTotalPointsColumn,
   loadWorksheetRows,
   looksLikeSid,
   normalizeSid,
@@ -67,17 +68,17 @@ function addFromBand(
 
   if (!name && !looksLikeSid(sid)) return null;
 
-  const computed = pts || (roleCode === "PARTICIPANT" ? 2 : pts);
+  const totalPoints = pts || (roleCode === "PARTICIPANT" ? 2 : 0);
 
   return {
     rawName: name || undefined,
     rawSid: sid ? normalizeSid(sid) : undefined,
     rawRoom: room || undefined,
     roleCode,
-    basePoints: pts || computed,
+    basePoints: totalPoints,
     extraPoints: 0,
     rating: rating || undefined,
-    computedPoints: computed || pts,
+    computedPoints: totalPoints,
     rowIndex,
     notes,
   };

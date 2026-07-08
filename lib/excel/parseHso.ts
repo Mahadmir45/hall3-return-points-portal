@@ -2,8 +2,10 @@ import type { RoleCode } from "@prisma/client";
 import {
   cellValue,
   emptyParseLog,
+  findTotalPointsColumn,
   loadWorksheetRows,
   looksLikeSid,
+  normalizeSid,
   type ParseLog,
 } from "./helpers";
 
@@ -11,8 +13,6 @@ export interface StagedHsoEntry {
   officerName: string;
   officerSid?: string;
   officerRoom?: string;
-  taskLabel: string;
-  rtMentor?: string;
   points: number;
   notes?: string;
   rowIndex: number;
@@ -31,19 +31,20 @@ function extractPoints(val: unknown): number {
   if (lower.includes("absent") && !/^\d/.test(s)) return 0;
   if (lower.includes("not available") && !/^\d/.test(s)) return 0;
 
-  // Use leading number only — avoid cellNumber which merges "4(3+1)" into 431
-  const leading = extractLeadingNumber(s);
-  if (leading > 0) return leading;
-
-  // Explicit zero entries like "0" or "0 (claim)"
+  const m = s.match(/^[\d.]+/);
+  if (m) return parseFloat(m[0]);
   if (/^0\b/.test(s.trim())) return 0;
 
   return 0;
 }
 
-function extractLeadingNumber(s: string): number {
-  const m = s.match(/^[\d.]+/);
-  return m ? parseFloat(m[0]) : 0;
+function normalizeNameKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\s*\([^)]*\)\s*/g, " ")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function isOfficerRosterHeader(row: unknown[]): boolean {
@@ -74,19 +75,39 @@ function isSectionTitleRow(row: unknown[]): boolean {
   return /officer$/i.test(name) || /^[A-Za-z ]+ Officer$/i.test(name);
 }
 
-function parseOfficerRoster(rows: unknown[][], log: ParseLog): StagedHsoEntry[] {
+function isPointColumnHeader(label: string): boolean {
+  const lower = label.toLowerCase();
+  if (!label) return false;
+  if (lower === "f" || lower === "floor" || lower === "position") return false;
+  if (lower.includes("name") || lower.includes("sid")) return false;
+  if (lower.includes("comment") || lower.includes("note")) return false;
+  return (
+    lower.includes("meeting") ||
+    lower.includes("umbrella") ||
+    lower.includes("task") ||
+    /\(\d{1,2}\/\d{1,2}\)/.test(label) ||
+    /\d{1,2}\/\d{1,2}/.test(label)
+  );
+}
+
+/** Horizontal officer roster: one row per person → name, SID, total points. */
+function parseHorizontalOfficerRoster(
+  rows: unknown[][],
+  log: ParseLog,
+): { entries: StagedHsoEntry[]; sidByName: Map<string, string> } {
   const entries: StagedHsoEntry[] = [];
+  const sidByName = new Map<string, string>();
   const headerRowIdx = rows.findIndex(isOfficerRosterHeader);
-  if (headerRowIdx < 0) return entries;
+  if (headerRowIdx < 0) return { entries, sidByName };
 
   const header = rows[headerRowIdx] ?? [];
+  const totalCol = findTotalPointsColumn(header);
   const meetingCols: { col: number; label: string }[] = [];
-  for (let c = 8; c < header.length; c++) {
-    const label = cellValue(header[c]);
-    if (!label) continue;
-    const lower = label.toLowerCase();
-    if (lower.includes("total") || lower === "f") break;
-    meetingCols.push({ col: c, label: label.replace(/\s+/g, " ").trim() });
+
+  for (let c = 0; c < header.length; c++) {
+    const label = cellValue(header[c]).replace(/\s+/g, " ").trim();
+    if (!label || c === totalCol) continue;
+    if (isPointColumnHeader(label)) meetingCols.push({ col: c, label });
   }
 
   for (let r = headerRowIdx + 1; r < rows.length; r++) {
@@ -103,37 +124,33 @@ function parseOfficerRoster(rows: unknown[][], log: ParseLog): StagedHsoEntry[] 
     if (!name || !looksLikeSid(sid)) continue;
 
     const room = cellValue(row[6]);
-    const position = cellValue(row[7]);
+    sidByName.set(normalizeNameKey(name), normalizeSid(sid));
 
-    let total = 0;
-    const meetingNotes: string[] = [];
-    for (const mc of meetingCols) {
-      const raw = cellValue(row[mc.col]);
-      if (!raw) continue;
-      const pts = extractPoints(row[mc.col]);
-      total += pts;
-      meetingNotes.push(`${mc.label}: ${raw}`);
+    let total = totalCol >= 0 ? extractPoints(row[totalCol]) : 0;
+    if (total === 0) {
+      for (const mc of meetingCols) total += extractPoints(row[mc.col]);
     }
-
-    if (total === 0 && meetingNotes.length === 0) continue;
+    if (total === 0) continue;
 
     entries.push({
       officerName: name,
-      officerSid: sid,
+      officerSid: normalizeSid(sid),
       officerRoom: room,
-      taskLabel: position || "HSO Officer",
-      rtMentor: undefined,
       points: total,
-      notes: meetingNotes.join("; "),
       rowIndex: r + 1,
     });
     log.matched++;
   }
 
-  return entries;
+  return { entries, sidByName };
 }
 
-function parseMentorMatrix(rows: unknown[][], log: ParseLog): StagedHsoEntry[] {
+/** Vertical mentor matrix: one column per person → name header, total points summed down the column. */
+function parseVerticalMentorColumns(
+  rows: unknown[][],
+  sidByName: Map<string, string>,
+  log: ParseLog,
+): StagedHsoEntry[] {
   const entries: StagedHsoEntry[] = [];
   const nameRowIdx = rows.findIndex(isMentorNameRow);
   if (nameRowIdx < 0) return entries;
@@ -148,13 +165,8 @@ function parseMentorMatrix(rows: unknown[][], log: ParseLog): StagedHsoEntry[] {
     return entries;
   }
 
-  const positionRow = rows[positionRowIdx] ?? [];
-  const mentors: {
-    col: number;
-    name: string;
-    room?: string;
-    position?: string;
-  }[] = [];
+  const mentors: { col: number; name: string; room?: string; sid?: string }[] =
+    [];
 
   for (let c = 7; c < nameRow.length; c++) {
     const name = cellValue(nameRow[c]);
@@ -166,7 +178,7 @@ function parseMentorMatrix(rows: unknown[][], log: ParseLog): StagedHsoEntry[] {
       col: c,
       name,
       room: cellValue(roomRow[c]),
-      position: cellValue(positionRow[c]),
+      sid: sidByName.get(normalizeNameKey(name)),
     });
   }
 
@@ -175,36 +187,30 @@ function parseMentorMatrix(rows: unknown[][], log: ParseLog): StagedHsoEntry[] {
     return entries;
   }
 
-  for (let r = positionRowIdx + 1; r < rows.length; r++) {
-    const row = rows[r];
-    if (!row) continue;
-
-    const task = cellValue(row[5]);
-    if (!task || task.toLowerCase() === "tasks") continue;
-
-    const rtMentor = cellValue(row[4]) || cellValue(row[2]);
-    const sectionLabel = cellValue(row[2]);
-    const rtLabel = rtMentor || sectionLabel;
-
-    for (const mentor of mentors) {
+  for (const mentor of mentors) {
+    let total = 0;
+    for (let r = positionRowIdx + 1; r < rows.length; r++) {
+      const row = rows[r];
+      if (!row) continue;
+      const task = cellValue(row[5]);
+      if (!task || task.toLowerCase() === "tasks") continue;
       const raw = cellValue(row[mentor.col]);
       if (!raw) continue;
-
       const points = extractPoints(raw);
       if (points === 0 && !/[(\d)]/.test(raw)) continue;
-
-      entries.push({
-        officerName: mentor.name,
-        officerSid: undefined,
-        officerRoom: mentor.room,
-        taskLabel: task,
-        rtMentor: rtLabel,
-        points,
-        notes: raw,
-        rowIndex: r + 1,
-      });
-      log.matched++;
+      total += points;
     }
+
+    if (total === 0) continue;
+
+    entries.push({
+      officerName: mentor.name,
+      officerSid: mentor.sid,
+      officerRoom: mentor.room,
+      points: total,
+      rowIndex: nameRowIdx + 1,
+    });
+    log.matched++;
   }
 
   return entries;
@@ -217,10 +223,27 @@ export async function parseHsoSheet(
   const { rows } = await loadWorksheetRows(buffer, sheetName);
   const log = emptyParseLog();
 
-  const mentorEntries = parseMentorMatrix(rows, log);
-  const officerEntries = parseOfficerRoster(rows, log);
+  const { entries: officerEntries, sidByName } = parseHorizontalOfficerRoster(
+    rows,
+    log,
+  );
+  const mentorEntries = parseVerticalMentorColumns(rows, sidByName, log);
 
-  const entries = [...mentorEntries, ...officerEntries];
+  // Prefer vertical mentor totals when the same person appears in both sections
+  const byKey = new Map<string, StagedHsoEntry>();
+  for (const e of [...officerEntries, ...mentorEntries]) {
+    const key = e.officerSid ?? normalizeNameKey(e.officerName);
+    const existing = byKey.get(key);
+    if (!existing || e.points > existing.points) {
+      byKey.set(key, {
+        ...e,
+        officerSid: e.officerSid ?? existing?.officerSid,
+        officerRoom: e.officerRoom ?? existing?.officerRoom,
+      });
+    }
+  }
+
+  const entries = Array.from(byKey.values());
 
   if (entries.length === 0 && log.errors.length === 0) {
     log.errors.push("Could not find HSO sheet structure");
@@ -240,45 +263,15 @@ export function hsoEntriesToParticipants(
   computedPoints: number;
   notes?: string;
   rowIndex: number;
-  sessionData?: Record<string, unknown>;
 }[] {
-  const byOfficer = new Map<
-    string,
-    {
-      rawName: string;
-      rawSid?: string;
-      rawRoom?: string;
-      total: number;
-      tasks: string[];
-      rowIndex: number;
-    }
-  >();
-
-  for (const e of entries) {
-    const key = e.officerSid ?? e.officerName.toLowerCase();
-    const existing = byOfficer.get(key) ?? {
-      rawName: e.officerName,
-      rawSid: e.officerSid,
-      rawRoom: e.officerRoom,
-      total: 0,
-      tasks: [],
-      rowIndex: e.rowIndex,
-    };
-    existing.total += e.points;
-    existing.tasks.push(`${e.taskLabel}: ${e.notes ?? e.points}`);
-    if (!existing.rawRoom && e.officerRoom) existing.rawRoom = e.officerRoom;
-    byOfficer.set(key, existing);
-  }
-
-  return Array.from(byOfficer.values()).map((o) => ({
-    rawName: o.rawName,
-    rawSid: o.rawSid,
-    rawRoom: o.rawRoom,
+  return entries.map((e) => ({
+    rawName: e.officerName,
+    rawSid: e.officerSid,
+    rawRoom: e.officerRoom,
     roleCode: "OFFICER" as RoleCode,
-    basePoints: o.total,
-    computedPoints: o.total,
-    notes: o.tasks.join("; "),
-    rowIndex: o.rowIndex,
-    sessionData: { tasks: o.tasks },
+    basePoints: e.points,
+    computedPoints: e.points,
+    notes: e.notes,
+    rowIndex: e.rowIndex,
   }));
 }
