@@ -24,6 +24,8 @@ Web portal for Hall 3 tutors to manage resident return points across Events, ICF
 
 The start script runs `prisma db push` + seed on boot, so Hall 3 users and categories are ready automatically.
 
+**Free tier note:** persistent disks are not available on Render free. Uploaded Excel files are stored on the instance filesystem and may be lost on redeploy. For permanent file storage, add Cloudflare R2 or S3 env vars (`S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, etc.) in the Render dashboard and set `USE_LOCAL_STORAGE=false`.
+
 GitHub Actions (`.github/workflows/ci.yml`) runs tests and a production build on every push to `main`.
 
 ### Option B — Vercel from GitHub

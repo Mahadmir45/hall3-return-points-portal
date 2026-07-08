@@ -6,13 +6,11 @@ services:
     buildCommand: npm ci && npx prisma generate && npm run build
     startCommand: bash scripts/start-production.sh
     healthCheckPath: /signin
-    disk:
-      name: uploads
-      mountPath: /opt/render/project/src/uploads
-      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
+      # Ephemeral local uploads on free tier (lost on redeploy). For persistence,
+      # set S3_* vars below and USE_LOCAL_STORAGE=false in the Render dashboard.
       - key: USE_LOCAL_STORAGE
         value: "true"
       - key: ENABLE_QUEUE
