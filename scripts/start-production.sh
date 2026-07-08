@@ -1,13 +1,17 @@
 #!/bin/sh
 set -e
 
+PORT="${PORT:-3000}"
+
 echo "Applying database schema..."
 npx prisma db push --skip-generate
 
 if [ "${RUN_SEED:-true}" = "true" ]; then
   echo "Seeding database..."
-  npx tsx prisma/seed.ts || echo "Seed skipped or already applied"
+  npx prisma db seed || echo "Seed skipped or already applied"
 fi
 
-echo "Starting server..."
-exec npm run start -- -p 3000 -H 0.0.0.0
+mkdir -p uploads
+
+echo "Starting server on port ${PORT}..."
+exec npx next start -H 0.0.0.0 -p "${PORT}"

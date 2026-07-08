@@ -3,20 +3,24 @@ services:
     name: hall3-return-points
     runtime: node
     plan: free
-    buildCommand: npm ci && npx prisma generate && npm run build
-    startCommand: bash scripts/start-production.sh
+    # --include=dev keeps Tailwind/TypeScript available when NODE_ENV=production
+    buildCommand: >-
+      npm ci --include=dev &&
+      npx prisma generate &&
+      npx prisma db push --skip-generate &&
+      npm run build &&
+      (npx prisma db seed || true)
+    startCommand: mkdir -p uploads && npm run start:render
     healthCheckPath: /signin
     envVars:
       - key: NODE_ENV
         value: production
       # Ephemeral local uploads on free tier (lost on redeploy). For persistence,
-      # set S3_* vars below and USE_LOCAL_STORAGE=false in the Render dashboard.
+      # set S3_* vars in the Render dashboard and USE_LOCAL_STORAGE=false.
       - key: USE_LOCAL_STORAGE
         value: "true"
       - key: ENABLE_QUEUE
         value: "false"
-      - key: RUN_SEED
-        value: "true"
       - key: AUTH_SECRET
         generateValue: true
       - key: DATABASE_URL
