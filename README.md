@@ -22,7 +22,9 @@ Web portal for Hall 3 tutors to manage resident return points across Events, ICF
    - `AUTH_URL` → your Render URL (e.g. `https://hall3-return-points.onrender.com`)
 5. Wait for the redeploy, then sign in with `tutor@hall3.dev` / `hall3dev`.
 
-The start script runs `prisma db push` + seed on boot, so Hall 3 users and categories are ready automatically.
+The build step runs `prisma db push` + seed; startup only launches Next.js on Render's `$PORT`.
+
+**If deploy fails:** check the failed deploy log in Render. The blueprint uses `npm ci --include=dev` (so Tailwind/TypeScript install under `NODE_ENV=production`), migrates the DB during build, and starts with `npm run start:render` on `$PORT`.
 
 **Free tier note:** persistent disks are not available on Render free. Uploaded Excel files are stored on the instance filesystem and may be lost on redeploy. For permanent file storage, add Cloudflare R2 or S3 env vars (`S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, etc.) in the Render dashboard and set `USE_LOCAL_STORAGE=false`.
 
